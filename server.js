@@ -1,4 +1,3 @@
-Вот новый `server.js` — копируй и вставляй целиком! 🔥
 
 ```javascript
 const express = require('express');
@@ -263,33 +262,3 @@ app.listen(PORT, () => {
   console.log(`   GET  /info - информация`);
 });
 ```
-
----
-
-## После того как вставишь:
-
-Также нужно обновить `package.json` — добавить зависимости `node-fetch` и `form-data`.
-
-Открой `package.json` в GitHub и замени на:
-
-```json
-{
-  "name": "video-merge-service",
-  "version": "3.0.0",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "form-data": "^4.0.0",
-    "multer": "^1.4.5-lts.1",
-    "node-fetch": "^2.7.0"
-  }
-}
-```
-
----
-
-Вставил? Railway сам передеплоит — жди зелёного статуса и говори! 🎯
