@@ -1,5 +1,3 @@
-
-```javascript
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
@@ -13,7 +11,6 @@ const fetch = require('node-fetch');
 const app = express();
 const execPromise = util.promisify(exec);
 
-// ✅ Настройка multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/');
@@ -33,232 +30,204 @@ const upload = multer({
 app.use(cors());
 app.use(express.json());
 
-// ✅ Создаём папки
-['uploads', 'output', 'subtitles'].forEach(dir => {
+['uploads', 'output', 'subtitles'].forEach(function(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 });
 
-// ✅ Генерация субтитров через Whisper
 async function generateSubtitles(audioPath, outputSrtPath, openaiKey) {
   try {
-    const formData = new FormData();
+    var formData = new FormData();
     formData.append('file', fs.createReadStream(audioPath));
     formData.append('model', 'whisper-1');
     formData.append('response_format', 'srt');
     formData.append('language', 'en');
 
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    var headers = formData.getHeaders();
+    headers['Authorization'] = 'Bearer ' + openaiKey;
+
+    var response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        ...formData.getHeaders()
-      },
+      headers: headers,
       body: formData
     });
 
     if (!response.ok) {
-      throw new Error(`Whisper API error: ${response.statusText}`);
+      throw new Error('Whisper API error: ' + response.statusText);
     }
 
-    const srtContent = await response.text();
+    var srtContent = await response.text();
     fs.writeFileSync(outputSrtPath, srtContent);
-    console.log('✅ Субтитры сгенерированы');
+    console.log('Subtitles generated successfully');
     return true;
   } catch (err) {
-    console.error('❌ Ошибка генерации субтитров:', err.message);
+    console.error('Subtitles generation error:', err.message);
     return false;
   }
 }
 
-// ✅ Главный эндпоинт
 app.post('/merge-video', upload.fields([
   { name: 'videos', maxCount: 15 },
   { name: 'audio', maxCount: 1 }
-]), async (req, res) => {
-  const timestamp = Date.now();
+]), async function(req, res) {
+  var timestamp = Date.now();
 
   try {
-    const videoFiles = req.files['videos'] || [];
-    const audioFiles = req.files['audio'] || [];
+    var videoFiles = req.files['videos'] || [];
+    var audioFiles = req.files['audio'] || [];
 
     if (videoFiles.length === 0) {
-      return res.status(400).json({ error: 'Нет видео файлов' });
+      return res.status(400).json({ error: 'No video files provided' });
     }
 
-    const openaiKey = req.body.openai_key || process.env.OPENAI_API_KEY;
-    const watermarkText = req.body.watermark || '@aieye21';
-    const addSubtitles = req.body.subtitles !== 'false';
+    var openaiKey = req.body.openai_key || process.env.OPENAI_API_KEY || '';
+    var watermarkText = req.body.watermark || '@aieye21';
+    var addSubtitles = req.body.subtitles !== 'false';
 
-    console.log(`📁 Видео файлов: ${videoFiles.length}`);
-    console.log(`🎵 Аудио файлов: ${audioFiles.length}`);
-    console.log(`💧 Watermark: ${watermarkText}`);
-    console.log(`📝 Субтитры: ${addSubtitles}`);
+    console.log('Video files: ' + videoFiles.length);
+    console.log('Audio files: ' + audioFiles.length);
+    console.log('Watermark: ' + watermarkText);
+    console.log('Subtitles: ' + addSubtitles);
 
-    // ШАГ 1 — Склейка всех видео
-    const listPath = path.join(__dirname, 'uploads', `list_${timestamp}.txt`);
-    let fileList = '';
+    var listPath = path.join(__dirname, 'uploads', 'list_' + timestamp + '.txt');
+    var fileList = '';
 
-    for (const file of videoFiles) {
-      const absolutePath = path.resolve(file.path).replace(/\\/g, '/');
-      fileList += `file '${absolutePath}'\n`;
+    for (var i = 0; i < videoFiles.length; i++) {
+      var absolutePath = path.resolve(videoFiles[i].path).replace(/\\/g, '/');
+      fileList += "file '" + absolutePath + "'\n";
     }
 
     fs.writeFileSync(listPath, fileList);
 
-    const concatenatedPath = path.join(__dirname, 'output', `concat_${timestamp}.mp4`);
+    var concatenatedPath = path.join(__dirname, 'output', 'concat_' + timestamp + '.mp4');
 
-    console.log('🎬 Склейка видео...');
+    console.log('Concatenating videos...');
     try {
-      await execPromise(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${concatenatedPath}"`);
+      await execPromise('ffmpeg -f concat -safe 0 -i "' + listPath + '" -c copy -y "' + concatenatedPath + '"');
     } catch (e) {
-      await execPromise(`ffmpeg -f concat -safe 0 -i "${listPath}" -c:v libx264 -c:a aac -y "${concatenatedPath}"`);
+      await execPromise('ffmpeg -f concat -safe 0 -i "' + listPath + '" -c:v libx264 -c:a aac -y "' + concatenatedPath + '"');
     }
-    console.log('✅ Видео склеено');
+    console.log('Videos concatenated');
 
-    // ШАГ 2 — Наложение аудио
-    let videoWithAudioPath = concatenatedPath;
+    var videoWithAudioPath = concatenatedPath;
 
     if (audioFiles.length > 0) {
-      const audioPath = path.resolve(audioFiles[0].path).replace(/\\/g, '/');
-      videoWithAudioPath = path.join(__dirname, 'output', `with_audio_${timestamp}.mp4`);
+      var audioPath = path.resolve(audioFiles[0].path).replace(/\\/g, '/');
+      videoWithAudioPath = path.join(__dirname, 'output', 'with_audio_' + timestamp + '.mp4');
 
-      console.log('🎵 Наложение аудио...');
+      console.log('Adding audio...');
       try {
         await execPromise(
-          `ffmpeg -i "${concatenatedPath}" -i "${audioPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${videoWithAudioPath}"`
+          'ffmpeg -i "' + concatenatedPath + '" -i "' + audioPath + '" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "' + videoWithAudioPath + '"'
         );
       } catch (e) {
         await execPromise(
-          `ffmpeg -i "${concatenatedPath}" -i "${audioPath}" -c:v libx264 -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${videoWithAudioPath}"`
+          'ffmpeg -i "' + concatenatedPath + '" -i "' + audioPath + '" -c:v libx264 -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "' + videoWithAudioPath + '"'
         );
       }
-      console.log('✅ Аудио наложено');
+      console.log('Audio added');
     }
 
-    // ШАГ 3 — Субтитры
-    let videoWithSubtitlesPath = videoWithAudioPath;
+    var videoWithSubtitlesPath = videoWithAudioPath;
 
     if (addSubtitles && audioFiles.length > 0 && openaiKey) {
-      const audioPath = path.resolve(audioFiles[0].path).replace(/\\/g, '/');
-      const srtPath = path.join(__dirname, 'subtitles', `subs_${timestamp}.srt`);
+      var audioPathForSubs = path.resolve(audioFiles[0].path).replace(/\\/g, '/');
+      var srtPath = path.join(__dirname, 'subtitles', 'subs_' + timestamp + '.srt');
 
-      console.log('📝 Генерация субтитров...');
-      const subsGenerated = await generateSubtitles(audioPath, srtPath, openaiKey);
+      console.log('Generating subtitles...');
+      var subsGenerated = await generateSubtitles(audioPathForSubs, srtPath, openaiKey);
 
       if (subsGenerated) {
-        videoWithSubtitlesPath = path.join(__dirname, 'output', `with_subs_${timestamp}.mp4`);
-        const safeSrtPath = srtPath.replace(/\\/g, '/').replace(/'/g, "\\'");
+        videoWithSubtitlesPath = path.join(__dirname, 'output', 'with_subs_' + timestamp + '.mp4');
+        var safeSrtPath = srtPath.replace(/\\/g, '/');
 
         try {
           await execPromise(
-            `ffmpeg -i "${videoWithAudioPath}" -vf "subtitles='${safeSrtPath}':force_style='FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=2,Alignment=2'" -c:a copy -y "${videoWithSubtitlesPath}"`
+            'ffmpeg -i "' + videoWithAudioPath + '" -vf "subtitles=' + "'" + safeSrtPath + "'" + ':force_style=' + "'FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=2,Alignment=2'" + '" -c:a copy -y "' + videoWithSubtitlesPath + '"'
           );
-          console.log('✅ Субтитры добавлены');
+          console.log('Subtitles added');
         } catch (e) {
-          console.log('⚠️ Субтитры не добавились, продолжаем без них');
+          console.log('Subtitles failed, continuing without them');
           videoWithSubtitlesPath = videoWithAudioPath;
         }
       }
     }
 
-    // ШАГ 4 — Watermark
-    const outputPath = path.join(__dirname, 'output', `final_${timestamp}.mp4`);
+    var outputPath = path.join(__dirname, 'output', 'final_' + timestamp + '.mp4');
 
-    console.log('💧 Добавление watermark...');
+    console.log('Adding watermark...');
     try {
       await execPromise(
-        `ffmpeg -i "${videoWithSubtitlesPath}" -vf "drawtext=text='${watermarkText}':fontcolor=white:fontsize=24:x=w-tw-20:y=20:shadowcolor=black:shadowx=2:shadowy=2:font='Arial'" -c:a copy -y "${outputPath}"`
+        'ffmpeg -i "' + videoWithSubtitlesPath + '" -vf "drawtext=text=' + "'" + watermarkText + "'" + ':fontcolor=white:fontsize=24:x=w-tw-20:y=20:shadowcolor=black:shadowx=2:shadowy=2" -c:a copy -y "' + outputPath + '"'
       );
-      console.log('✅ Watermark добавлен');
+      console.log('Watermark added');
     } catch (e) {
-      console.log('⚠️ Watermark не добавился, сохраняем без него');
+      console.log('Watermark failed, saving without it');
       fs.copyFileSync(videoWithSubtitlesPath, outputPath);
     }
 
-    // ШАГ 5 — Отправка файла
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Выходной файл не создан');
+      throw new Error('Output file was not created');
     }
 
-    const stats = fs.statSync(outputPath);
-    console.log(`📤 Отправка файла: ${outputPath} (${Math.round(stats.size / 1024 / 1024)}MB)`);
+    var stats = fs.statSync(outputPath);
+    console.log('Sending file: ' + Math.round(stats.size / 1024 / 1024) + 'MB');
 
-    res.sendFile(path.resolve(outputPath), {}, (err) => {
+    res.sendFile(path.resolve(outputPath), {}, function(err) {
       if (err) {
-        console.error('❌ Ошибка отправки:', err);
+        console.error('Send error:', err);
       } else {
-        console.log('✅ Файл успешно отправлен');
+        console.log('File sent successfully');
       }
 
-      // Чистка временных файлов
-      setTimeout(() => {
+      setTimeout(function() {
         try {
-          const filesToDelete = [
-            listPath,
-            concatenatedPath,
-            videoWithAudioPath,
-            videoWithSubtitlesPath,
-            outputPath,
-            ...videoFiles.map(f => f.path),
-            ...audioFiles.map(f => f.path)
-          ];
+          var filesToDelete = [listPath, concatenatedPath, videoWithAudioPath, videoWithSubtitlesPath, outputPath];
+          filesToDelete = filesToDelete.concat(videoFiles.map(function(f) { return f.path; }));
+          filesToDelete = filesToDelete.concat(audioFiles.map(function(f) { return f.path; }));
 
-          filesToDelete.forEach(f => {
+          filesToDelete.forEach(function(f) {
             if (f && fs.existsSync(f)) fs.unlinkSync(f);
           });
 
-          // Чистка субтитров
-          const srtPath = path.join(__dirname, 'subtitles', `subs_${timestamp}.srt`);
-          if (fs.existsSync(srtPath)) fs.unlinkSync(srtPath);
+          var srtCleanPath = path.join(__dirname, 'subtitles', 'subs_' + timestamp + '.srt');
+          if (fs.existsSync(srtCleanPath)) fs.unlinkSync(srtCleanPath);
 
-          console.log('🧹 Временные файлы очищены');
+          console.log('Temp files cleaned');
         } catch (cleanErr) {
-          console.error('Ошибка при очистке:', cleanErr);
+          console.error('Cleanup error:', cleanErr);
         }
       }, 2000);
     });
 
   } catch (error) {
-    console.error('❌ Ошибка:', error);
+    console.error('Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ✅ Health check
-app.get('/health', (req, res) => {
+app.get('/health', function(req, res) {
   res.json({
     status: 'ok',
     service: 'Video Merge Service',
     version: '3.0',
-    features: ['concat', 'audio', 'subtitles', 'watermark'],
-    endpoints: {
-      merge: '/merge-video (POST)',
-      health: '/health (GET)',
-      info: '/info (GET)'
-    }
+    features: ['concat', 'audio', 'subtitles', 'watermark']
   });
 });
 
-// ✅ Info
-app.get('/info', (req, res) => {
+app.get('/info', function(req, res) {
   res.json({
-    message: 'POST /merge-video с полями videos[] и audio',
+    message: 'POST /merge-video',
     fields: {
-      videos: 'Массив видео файлов (mp4)',
-      audio: 'Аудио файл (mp3/m4a)',
-      openai_key: 'OpenAI API ключ для субтитров',
-      watermark: 'Текст watermark (по умолчанию @aieye21)',
-      subtitles: 'true/false (по умолчанию true)'
+      videos: 'Array of video files (mp4)',
+      audio: 'Audio file (mp3/m4a)',
+      openai_key: 'OpenAI API key for subtitles',
+      watermark: 'Watermark text (default @aieye21)',
+      subtitles: 'true/false (default true)'
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Video Merge Service v3.0 запущен на порту ${PORT}`);
-  console.log(`📝 Endpoints:`);
-  console.log(`   POST /merge-video - merge + subtitles + watermark`);
-  console.log(`   GET  /health - статус`);
-  console.log(`   GET  /info - информация`);
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Video Merge Service v3.0 started on port ' + PORT);
 });
-```
